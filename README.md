@@ -35,7 +35,7 @@ DELAY_SECONDS  = 300                     # Interval pengecekan dalam detik
 
 1. Install dependency:
     ```
-    pip install requests beautifulsoup4
+    pip install requirements.txt
     ```
 
 2. Jalankan script:
