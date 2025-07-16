@@ -70,12 +70,17 @@ def login_to_router(session):
     encoded_username = base64.b64encode(USERNAME.encode()).decode()
     encoded_password = base64.b64encode(PASSWORD.encode()).decode()
     login_data = {"username": encoded_username, "password": encoded_password}
-    res = session.post(urljoin(BASE_URL, LOGIN_URL), data=login_data, headers=HEADERS)
-    if "menu.html" in res.text or "logout.asp" in res.text or session.cookies.get_dict():
-        print("✅ Login berhasil!")
-        return True
-    else:
-        print("❌ Login gagal: tidak ada indikasi login berhasil.")
+    
+    try:
+        res = session.post(urljoin(BASE_URL, LOGIN_URL), data=login_data, headers=HEADERS, timeout=5)
+        if res.status_code == 200 and ("menu.html" in res.text or "logout.asp" in res.text):
+            print("✅ Login berhasil!")
+            return True
+        else:
+            print("❌ Login gagal.")
+            return False
+    except Exception as e:
+        print(f"❌ Error saat login: {e}")
         return False
 
 def get_usage(session):
