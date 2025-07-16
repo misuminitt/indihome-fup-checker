@@ -76,9 +76,10 @@ HEADERS = {
 }
 
 monitor_thread = None
-monitoring = False
 selected_speed = None
 chat_id = None
+monitor_event = threading.Event()
+monitor_lock = threading.Lock()
 user_selected_package = {}
 
 def print_fup_table_text():
@@ -115,11 +116,8 @@ def login_to_router(session):
 
 def get_usage(session):
     res = session.get(urljoin(BASE_URL, STATS_PAGE), headers=HEADERS, timeout=5)
-    
-    # Deteksi kalau halaman berubah menjadi halaman login
     if "login" in res.text.lower() or "goform/webLogin" in res.text:
         raise ConnectionError("Session expired: butuh login ulang.")
-    
     soup = BeautifulSoup(res.text, "html.parser")
     rx_tag = soup.find("td", {"id": "stream_rbc"})
     tx_tag = soup.find("td", {"id": "stream_sbc"})
@@ -138,31 +136,29 @@ def send_telegram_message(bot, text):
             print(f"❌ Gagal kirim pesan ke Telegram: {e}")
 
 def monitor_fup(bot=None):
-    global monitoring, selected_speed
+    global selected_speed
     stage1, stage2 = FUP_TABLE[selected_speed]
     session = requests.Session()
 
-    if not login_to_router(session):
-        warning_msg = (
-            "⚠️ Tidak bisa login ke router.\n"
-            "💡 Mungkin sesi login sebelumnya masih aktif atau belum ditutup dengan benar.\n"
-            "⏳ Silakan tunggu 1-2 menit lalu coba lagi.\n"
-            "🔁 Atau pastikan tidak ada sesi terbuka di browser/router lain."
-        )
+    try:
+        if not login_to_router(session):
+            warning_msg = (
+                "⚠️ Tidak bisa login ke router.\n"
+                "💡 Mungkin sesi login sebelumnya masih aktif atau belum ditutup dengan benar.\n"
+                "⏳ Silakan tunggu 1-2 menit lalu coba lagi."
+            )
+            if bot:
+                send_telegram_message(bot, warning_msg)
+            else:
+                print(warning_msg)
+            return
+
+        print(f"📱 Mengakses halaman statistik: {STATS_PAGE}")
+        print("🔄 Memantau penggunaan data WiFi...")
         if bot:
-            send_telegram_message(bot, warning_msg)
-        else:
-            print(warning_msg)
-        monitoring = False
-        return
+            send_telegram_message(bot, f"📱 Mengakses halaman statistik: {STATS_PAGE}\n🔄 Memulai pemantauan penggunaan data WiFi...")
 
-    print(f"📱 Mengakses halaman statistik: {STATS_PAGE}")
-    print("🔄 Memantau penggunaan data WiFi...")
-    if bot:
-        send_telegram_message(bot, f"📱 Mengakses halaman statistik: {STATS_PAGE}\n🔄 Memulai pemantauan penggunaan data WiFi...")
-
-    while monitoring:
-        try:
+        while monitor_event.is_set():
             total_gb, rx, tx = get_usage(session)
             ts = time.strftime("%Y-%m-%d %H:%M:%S")
             status = check_fup_status(total_gb, stage1, stage2, selected_speed)
@@ -170,77 +166,88 @@ def monitor_fup(bot=None):
             print(message)
             if bot:
                 send_telegram_message(bot, message)
-        except Exception as e:
-            error_msg = f"[Error] ❌ Gagal ambil data: {e}"
-            print(error_msg)
-            if bot and "rx/tx tidak ditemukan" in str(e).lower():
-                send_telegram_message(bot, f"❌ Gagal ambil data dari router:\n<b>{e}</b>\n\n💡 Coba cek apakah router masih menyala dan halaman statistik tersedia.")
-            elif bot and "session expired" in str(e).lower():
-                send_telegram_message(bot, "🔐 Session login router kadaluarsa. Mencoba login ulang...")
-                session = requests.Session()
-                if not login_to_router(session):
-                    send_telegram_message(bot, "❌ Gagal login ulang. Monitoring dihentikan.")
-                    monitoring = False
-                    return
+            time.sleep(DELAY_SECONDS)
+    except Exception as e:
+        error_msg = f"[Error] ❌ Gagal ambil data: {e}"
+        print(error_msg)
+        if bot:
+            send_telegram_message(bot, error_msg)
+    finally:
+        monitor_event.clear()
+        print("🛑 Thread monitor_fup dihentikan.")
 
+# =============== MODE UTAMA ================
 if __name__ == '__main__':
     print("Bot FUP Monitor sedang berjalan...")
+
     if use_telegram == 'y' and telegram_available:
         from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
         def start(update, context):
-            global monitoring, chat_id, TELEGRAM_CHAT_ID
+            global chat_id, TELEGRAM_CHAT_ID
             chat_id = update.effective_chat.id
             if not TELEGRAM_CHAT_ID:
                 TELEGRAM_CHAT_ID = str(chat_id)
                 with open(".env", "a") as f:
                     f.write(f"TELEGRAM_CHAT_ID={TELEGRAM_CHAT_ID}\n")
-
             update.message.reply_text(
                 "👋 Selamat datang di *IndiHome FUP Monitor*!\n"
                 "Bot ini akan memantau total pemakaian data dari router Anda.\n\n"
-                "📌 Gunakan /menu untuk memilih paket dan mulai memantau.",
+                "Gunakan /menu untuk memilih paket dan mulai memantau.",
                 parse_mode='Markdown'
             )
+
+        def stop(update, context):
+            if monitor_event.is_set():
+                monitor_event.clear()
+                update.message.reply_text("⛔ Pemantauan dihentikan.")
+            else:
+                update.message.reply_text("ℹ️ Tidak ada pemantauan yang sedang berjalan.")
+
+        def status(update, context):
+            status_msg = "🟢 Monitoring aktif." if monitor_event.is_set() else "🔴 Monitoring tidak aktif."
+            update.message.reply_text(status_msg)
 
         def menu(update, context):
             with open("fup_table.jpg", "rb") as f:
                 context.bot.send_photo(chat_id=update.effective_chat.id, photo=f, caption=(
-                    "📊 Berikut adalah Tabel FUP IndiHome Resmi:\n"
-                    "Ketik angka paket Anda (misalnya: 50) untuk mulai memantau."
+                    "📊 Tabel FUP IndiHome:\n"
+                    "Ketik angka paket (contoh: 50) untuk mulai memantau."
                 ))
 
-        def stop(update, context):
-            global monitoring
-            monitoring = False
-            update.message.reply_text("⛔ Pemantauan dihentikan.")
-
         def handle_message(update, context):
-            global monitoring, monitor_thread, selected_speed, chat_id, user_selected_package
+            global selected_speed, monitor_thread
             chat_id = update.effective_chat.id
             try:
                 selected = int(update.message.text)
                 if selected not in FUP_TABLE:
-                    update.message.reply_text("❌ Kecepatan tidak tersedia di daftar.")
+                    update.message.reply_text("❌ Kecepatan tidak tersedia.")
                     return
-                user_selected_package[chat_id] = selected
+
+                if monitor_event.is_set():
+                    update.message.reply_text("⚠️ Monitoring sudah berjalan. Gunakan /stop dulu.")
+                    return
+
                 selected_speed = selected
-                update.message.reply_text(f"✅ Paket {selected} Mbps dipilih. Mulai memantau...")
-                monitoring = True
-                monitor_thread = threading.Thread(target=monitor_fup, args=(context.bot,))
-                monitor_thread.start()
+                update.message.reply_text(f"✅ Paket {selected} Mbps dipilih. Memulai monitoring...")
+                monitor_event.set()
+
+                with monitor_lock:
+                    monitor_thread = threading.Thread(target=monitor_fup, args=(context.bot,))
+                    monitor_thread.start()
             except ValueError:
                 update.message.reply_text("❌ Input tidak valid. Masukkan angka saja.")
-            time.sleep(DELAY_SECONDS)
 
         updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
         dp = updater.dispatcher
         dp.add_handler(CommandHandler("start", start))
         dp.add_handler(CommandHandler("stop", stop))
+        dp.add_handler(CommandHandler("status", status))
         dp.add_handler(CommandHandler("menu", menu))
         dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
         updater.start_polling()
         updater.idle()
+
     else:
         print("Telegram tidak digunakan. Menjalankan monitor di terminal...")
         print_fup_table_text()
@@ -248,7 +255,7 @@ if __name__ == '__main__':
             selected_speed = int(input("Masukkan paket speed Anda (misalnya 50): "))
             if selected_speed not in FUP_TABLE:
                 raise ValueError("Speed tidak tersedia dalam FUP table.")
-            monitoring = True
+            monitor_event.set()
             monitor_fup()
         except Exception as e:
             print(f"❌ Terjadi kesalahan: {e}")
