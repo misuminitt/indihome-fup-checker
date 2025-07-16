@@ -1,54 +1,145 @@
-# indihome-fup-checker
+# 📶 IndiHome FUP Monitor
 
-Script Python sederhana untuk memantau pemakaian data internet (RX/TX) dari router Indihome dan memberikan peringatan saat melewati batas FUP (Fair Usage Policy).
+IndiHome FUP Monitor adalah script Python yang memungkinkan Anda memantau penggunaan data internet (RX/TX) dari router secara otomatis, dengan opsi notifikasi melalui bot Telegram.
+
+Script ini mendukung dua mode:
+
+* 📿 **Mode Terminal (tanpa bot)**
+* 🤖 **Mode Telegram Bot** (jika diaktifkan)
+
+---
 
 ## 🔧 Fitur
 
-- Otomatis login ke router
-- Mengambil statistik RX (download) dan TX (upload)
-- Menampilkan total pemakaian dalam satuan GB
-- Memberikan peringatan saat mencapai FUP-1 (misal 1200 GB) atau FUP-2 (misal 1800 GB)
-- Cek otomatis setiap beberapa menit
+* Cek otomatis pemakaian internet dari halaman statistik router (`wireless_state.asp`)
+* Hitung total pemakaian RX + TX dalam GB
+* Deteksi status FUP berdasarkan paket langganan Anda (10–300 Mbps)
+* Kirim notifikasi ke Telegram secara berkala (jika bot diaktifkan)
 
-## 📷 Contoh Output
+---
+
+## 🎞️ Instalasi
+
+1. **Clone repositori**:
+
+   ```bash
+   git clone https://github.com/misuminitt/indihome-fup-monitor.git
+   cd indihome-fup-monitor
+   ```
+
+2. **Install dependensi**:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+---
+
+## ▶️ Cara Menjalankan
+
+Jalankan file Python:
+
+```bash
+python fup_monitor.py
+```
+
+Saat ditanya:
 
 ```
-[2025-07-16 05:51:58] Total: 2.42 GB | RX: 1.85 GB | TX: 0.57 GB → ✅ Aman — belum melewati FUP. (2.42 GB)
+Apakah Anda ingin menggunakan bot Telegram? (y/n):
 ```
 
-## ⚙️ Konfigurasi
+Jawab:
 
-Edit bagian ini di dalam `fup_monitor.py`:
+* `y` untuk menggunakan mode Telegram bot
+* `n` untuk menjalankan hanya di terminal
 
-```python
-BASE_URL       = "http://192.168.1.1/"   # IP router kamu
-USERNAME       = "admin"                 # Username login router
-PASSWORD       = "admin"                 # Password login router
-FUP_STAGE_1    = 1200                    # FUP tahap 1 dalam GB
-FUP_STAGE_2    = 1800                    # FUP tahap 2 dalam GB
-DELAY_SECONDS  = 300                     # Interval pengecekan dalam detik
+---
+
+## 🧪 Mode Terminal
+
+Jika Anda memilih `n`, maka:
+
+1. Tabel FUP akan muncul di terminal
+2. Anda akan diminta memilih kecepatan paket (contoh: `50`)
+3. Pemantauan dimulai dan hasil akan tampil setiap 5 menit
+
+---
+
+## 🤖 Mode Bot Telegram
+
+Jika Anda memilih `y`, Anda perlu menyiapkan bot Telegram terlebih dahulu.
+
+### 🛠️ Cara Membuat Bot Telegram
+
+1. Buka Telegram dan cari bot `@BotFather`
+
+2. Kirim perintah:
+
+   ```
+   /start
+   /newbot
+   ```
+
+3. Masukkan nama bot dan username bot unik (harus diakhiri dengan `bot`, contoh: `indifupbot`)
+
+4. Anda akan menerima **bot token** seperti:
+
+   ```
+   123456789:ABCdefGhIjKLMnopQRsTUVwxyz
+   ```
+
+5. **Salin token tersebut.**
+
+---
+
+## 📄 Menyimpan Token dan Chat ID
+
+Saat pertama kali menjalankan mode bot:
+
+* Anda akan diminta memasukkan bot token
+* Kemudian kirim perintah `/start` ke bot Anda di Telegram
+* Bot akan otomatis menyimpan `TELEGRAM_CHAT_ID` di file `.env`
+
+Contoh isi file `.env` setelah setup:
+
+```
+TELEGRAM_TOKEN=123456789:ABCdefGhIjKLMnopQRsTUVwxyz
+TELEGRAM_CHAT_ID=987654321
 ```
 
-> ⚠️ Pastikan endpoint statistik `state/wireless_state.asp` sesuai dengan router kamu. Beberapa router mungkin menggunakan halaman lain.
+---
 
-## 🚀 Cara Menjalankan
+## 💬 Perintah Telegram yang Didukung
 
-1. Install dependency:
-    ```
-    pip install requirements.txt
-    ```
+| Perintah  | Fungsi                                              |
+| --------- | --------------------------------------------------- |
+| `/start`  | Menampilkan sambutan dan info bot                   |
+| `/menu`   | Menampilkan tabel FUP resmi (dalam bentuk gambar)   |
+| `/stop`   | Menghentikan pemantauan                             |
 
-2. Jalankan script:
-    ```
-    python fup_monitor.py
-    ```
+---
+
+## 📁 Struktur File
+
+```txt
+indihome-fup-monitor/
+│
+├── fup_monitor.py         # Script utama
+├── fup_table.jpg          # Gambar tabel FUP (untuk bot)
+├── .env                   # Token dan chat ID (otomatis dibuat)
+└── README.md              # Dokumentasi ini
+```
+
+---
 
 ## 📝 Catatan Tambahan
 
-- Script ini bekerja pada router tertentu yang menyajikan data statistik RX/TX lewat HTML.
-- Beberapa router menggunakan proteksi JavaScript tambahan atau session berbeda, silakan sesuaikan jika perlu.
-- Login dilakukan menggunakan username dan password yang di-*Base64* terlebih dahulu, sesuai dengan proses di halaman login router.
+* Script ini hanya bekerja dengan router yang memiliki halaman `state/wireless_state.asp` dan `goform/webLogin` (seperti ZTE, Fiberhome, dll).
+* Pastikan IP gateway router adalah `192.168.1.1` atau sesuaikan variabel `BASE_URL`.
 
-## 📄 Lisensi
+---
 
-MIT License — bebas digunakan dan dimodifikasi.
+## ✅ Lisensi
+
+MIT License © 2025
