@@ -5,7 +5,7 @@ IndiHome FUP Monitor adalah script Python yang memungkinkan Anda memantau penggu
 Script ini mendukung dua mode:
 
 * 📿 **Mode Terminal (tanpa bot)**
-* 🤖 **Mode Telegram Bot** (jika diaktifkan)
+* 🤖 **Mode Telegram Bot (jika diaktifkan)**
 
 ---
 
