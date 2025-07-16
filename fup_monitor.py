@@ -33,9 +33,6 @@ if use_telegram == 'y':
     if not TELEGRAM_TOKEN:
         TELEGRAM_TOKEN = input("Masukkan Telegram Bot Token Anda: ").strip()
 
-    if not TELEGRAM_CHAT_ID:
-        TELEGRAM_CHAT_ID = None
-
     if not os.path.exists(".env"):
         with open(".env", "w") as f:
             f.write(f"TELEGRAM_TOKEN={TELEGRAM_TOKEN}\n")
@@ -118,6 +115,11 @@ def login_to_router(session):
 
 def get_usage(session):
     res = session.get(urljoin(BASE_URL, STATS_PAGE), headers=HEADERS, timeout=5)
+    
+    # Deteksi kalau halaman berubah menjadi halaman login
+    if "login" in res.text.lower() or "goform/webLogin" in res.text:
+        raise ConnectionError("Session expired: butuh login ulang.")
+    
     soup = BeautifulSoup(res.text, "html.parser")
     rx_tag = soup.find("td", {"id": "stream_rbc"})
     tx_tag = soup.find("td", {"id": "stream_sbc"})
@@ -169,8 +171,17 @@ def monitor_fup(bot=None):
             if bot:
                 send_telegram_message(bot, message)
         except Exception as e:
-            print(f"[Error] ❌ Gagal ambil data: {e}")
-        time.sleep(DELAY_SECONDS)
+            error_msg = f"[Error] ❌ Gagal ambil data: {e}"
+            print(error_msg)
+            if bot and "rx/tx tidak ditemukan" in str(e).lower():
+                send_telegram_message(bot, f"❌ Gagal ambil data dari router:\n<b>{e}</b>\n\n💡 Coba cek apakah router masih menyala dan halaman statistik tersedia.")
+            elif bot and "session expired" in str(e).lower():
+                send_telegram_message(bot, "🔐 Session login router kadaluarsa. Mencoba login ulang...")
+                session = requests.Session()
+                if not login_to_router(session):
+                    send_telegram_message(bot, "❌ Gagal login ulang. Monitoring dihentikan.")
+                    monitoring = False
+                    return
 
 if __name__ == '__main__':
     print("Bot FUP Monitor sedang berjalan...")
@@ -220,6 +231,7 @@ if __name__ == '__main__':
                 monitor_thread.start()
             except ValueError:
                 update.message.reply_text("❌ Input tidak valid. Masukkan angka saja.")
+            time.sleep(DELAY_SECONDS)
 
         updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
         dp = updater.dispatcher
