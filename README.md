@@ -1,25 +1,54 @@
-# IndiHome FUP Monitor via Router Fiberhome
+# indihome-fup-checker
 
-Cek pemakaian bandwidth WiFi dan status FUP (Fair Usage Policy) secara realtime langsung dari router tanpa perangkat tambahan.
+Script Python sederhana untuk memantau pemakaian data internet (RX/TX) dari router Indihome dan memberikan peringatan saat melewati batas FUP (Fair Usage Policy).
 
-## Fitur
-- Scrape data dari halaman `Wireless Status`
-- Hitung total penggunaan (GB)
-- Peringatan jika sudah mencapai FUP-1 / FUP-2 (sesuai paket)
-- Real-time log setiap 5 menit
+## 🔧 Fitur
 
-## Cara Pakai
+- Otomatis login ke router
+- Mengambil statistik RX (download) dan TX (upload)
+- Menampilkan total pemakaian dalam satuan GB
+- Memberikan peringatan saat mencapai FUP-1 (misal 1200 GB) atau FUP-2 (misal 1800 GB)
+- Cek otomatis setiap beberapa menit
 
-1. Install dependensi:
+## 📷 Contoh Output
 
-pip install -r requirements.txt
+```
+[2025-07-16 05:51:58] Total: 2.42 GB | RX: 1.85 GB | TX: 0.57 GB → ✅ Aman — belum melewati FUP. (2.42 GB)
+```
 
-2. Jalankan:
+## ⚙️ Konfigurasi
 
-python fup_monitor.py
+Edit bagian ini di dalam `fup_monitor.py`:
 
-3. Ubah konfigurasi paket dan URL router di bagian atas script (`BASE_URL`, `FUP_STAGE_1`, `FUP_STAGE_2`).
+```python
+BASE_URL       = "http://192.168.1.1/"   # IP router kamu
+USERNAME       = "admin"                 # Username login router
+PASSWORD       = "admin"                 # Password login router
+FUP_STAGE_1    = 1200                    # FUP tahap 1 dalam GB
+FUP_STAGE_2    = 1800                    # FUP tahap 2 dalam GB
+DELAY_SECONDS  = 300                     # Interval pengecekan dalam detik
+```
 
-## Catatan
-- Hanya menghitung trafik via **WiFi**, bukan LAN.
-- Tidak perlu router tambahan atau Mikrotik.
+> ⚠️ Pastikan endpoint statistik `state/wireless_state.asp` sesuai dengan router kamu. Beberapa router mungkin menggunakan halaman lain.
+
+## 🚀 Cara Menjalankan
+
+1. Install dependency:
+    ```
+    pip install requirements.txt
+    ```
+
+2. Jalankan script:
+    ```
+    python fup_monitor.py
+    ```
+
+## 📝 Catatan Tambahan
+
+- Script ini bekerja pada router tertentu yang menyajikan data statistik RX/TX lewat HTML.
+- Beberapa router menggunakan proteksi JavaScript tambahan atau session berbeda, silakan sesuaikan jika perlu.
+- Login dilakukan menggunakan username dan password yang di-*Base64* terlebih dahulu, sesuai dengan proses di halaman login router.
+
+## 📄 Lisensi
+
+MIT License — bebas digunakan dan dimodifikasi.
