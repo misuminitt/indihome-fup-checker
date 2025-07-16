@@ -140,19 +140,20 @@ def monitor_fup(bot=None):
     stage1, stage2 = FUP_TABLE[selected_speed]
     session = requests.Session()
 
-    try:
-        if not login_to_router(session):
-            warning_msg = (
-                "⚠️ Tidak bisa login ke router.\n"
-                "💡 Mungkin sesi login sebelumnya masih aktif atau belum ditutup dengan benar.\n"
-                "⏳ Silakan tunggu 1-2 menit lalu coba lagi."
-            )
-            if bot:
-                send_telegram_message(bot, warning_msg)
-            else:
-                print(warning_msg)
-            return
+    if not login_to_router(session):
+        warning_msg = (
+            "⚠️ Tidak bisa login ke router.\n"
+            "⚠️ Kamu memilih paket yang salah.\n"
+            "💡 Mungkin sesi login sebelumnya masih aktif atau belum ditutup dengan benar.\n"
+            "⏳ Silakan tunggu 1-2 menit lalu coba lagi."
+        )
+        if bot:
+            send_telegram_message(bot, warning_msg)
+        else:
+            print(warning_msg)
+        return
 
+    try:
         print(f"📱 Mengakses halaman statistik: {STATS_PAGE}")
         print("🔄 Memantau penggunaan data WiFi...")
         if bot:
@@ -225,7 +226,10 @@ if __name__ == '__main__':
                     return
 
                 if monitor_event.is_set():
-                    update.message.reply_text("⚠️ Monitoring sudah berjalan. Gunakan /stop dulu.")
+                    update.message.reply_text(
+                        "⚠️ Tidak bisa login ke router.\n"
+                        "ℹ️ Monitoring saat ini masih berjalan."
+                    )
                     return
 
                 selected_speed = selected
@@ -235,6 +239,7 @@ if __name__ == '__main__':
                 with monitor_lock:
                     monitor_thread = threading.Thread(target=monitor_fup, args=(context.bot,))
                     monitor_thread.start()
+
             except ValueError:
                 update.message.reply_text("❌ Input tidak valid. Masukkan angka saja.")
 
@@ -256,6 +261,13 @@ if __name__ == '__main__':
             if selected_speed not in FUP_TABLE:
                 raise ValueError("Speed tidak tersedia dalam FUP table.")
             monitor_event.set()
-            monitor_fup()
+            monitor_thread = threading.Thread(target=monitor_fup)
+            monitor_thread.start()
+
+            while monitor_thread.is_alive():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            monitor_event.clear()
+            print("\n⛔ Monitoring dihentikan oleh pengguna (Ctrl + C).")
         except Exception as e:
             print(f"❌ Terjadi kesalahan: {e}")
