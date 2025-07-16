@@ -20,7 +20,6 @@ if not TELEGRAM_TOKEN:
 if not TELEGRAM_CHAT_ID:
     TELEGRAM_CHAT_ID = None
 
-# Simpan ke .env jika belum ada
 if not os.path.exists(".env"):
     with open(".env", "w") as f:
         f.write(f"TELEGRAM_TOKEN={TELEGRAM_TOKEN}\n")
@@ -28,20 +27,33 @@ if not os.path.exists(".env"):
             f.write(f"TELEGRAM_CHAT_ID={TELEGRAM_CHAT_ID}\n")
 
 # =============== KONFIGURASI ================
-BASE_URL       = "http://192.168.1.1/"
-STATS_PAGE     = "state/wireless_state.asp"
-LOGIN_URL      = "goform/webLogin"
-USERNAME       = "admin"
-PASSWORD       = "admin"
-DELAY_SECONDS  = 300
+BASE_URL = "http://192.168.1.1/"
+STATS_PAGE = "state/wireless_state.asp"
+LOGIN_URL = "goform/webLogin"
+USERNAME = "admin"
+PASSWORD = "admin"
+DELAY_SECONDS = 300
 
 FUP_TABLE = {
-    20:  (300, 500),
-    30:  (400, 600),
-    50:  (500, 700),
-    100: (800, 1200),
-    200: (1200, 1600),
-    300: (2000, 3000)
+    10:  (300, 350),
+    20:  (500, 750),
+    30:  (700, 1100),
+    40:  (800, 1500),
+    50:  (1200, 1800),
+    100: (1800, 2000),
+    200: (3000, 3000),
+    300: (4000, 4000),
+}
+
+FUP_SPEEDS = {
+    10:  (7.5, 3),
+    20:  (10, 4),
+    30:  (15, 6),
+    40:  (20, 8),
+    50:  (25, 10),
+    100: (50, 20),
+    200: (100, None),
+    300: (150, None)
 }
 
 HEADERS = {
@@ -54,33 +66,30 @@ monitor_thread = None
 monitoring = False
 selected_speed = None
 chat_id = None
+user_selected_package = {}
 
 def bytes_to_gb(b):
     return round(b / (1024 ** 3), 2)
 
-def check_fup_status(total_gb, stage1, stage2):
-    if total_gb >= stage2:
-        return f"⚠️ FUP-2 tercapai! ({total_gb:.2f} GB) → Speed turun ke 10 Mbps"
-    elif total_gb >= stage1:
-        return f"🔔 FUP-1 tercapai! ({total_gb:.2f} GB) → Speed turun ke 25 Mbps"
+def check_fup_status(total_gb, stage1, stage2, speed):
+    speed1, speed2 = FUP_SPEEDS.get(speed, (None, None))
+    if total_gb > stage2:
+        return f"⚠️ FUP-2 tercapai! ({total_gb:.2f} GB) → Speed turun ke {speed2 or '-'} Mbps"
+    elif total_gb > stage1:
+        return f"🔔 FUP-1 tercapai! ({total_gb:.2f} GB) → Speed turun ke {speed1 or '-'} Mbps"
     else:
-        return f"✅ Aman — belum melewati FUP. ({total_gb:.2f} GB)"
+        return f"✅ Aman - belum melewati FUP. ({total_gb:.2f} GB)"
 
 def login_to_router(session):
     encoded_username = base64.b64encode(USERNAME.encode()).decode()
     encoded_password = base64.b64encode(PASSWORD.encode()).decode()
     login_data = {"username": encoded_username, "password": encoded_password}
-    
-    try:
-        res = session.post(urljoin(BASE_URL, LOGIN_URL), data=login_data, headers=HEADERS, timeout=5)
-        if res.status_code == 200 and ("menu.html" in res.text or "logout.asp" in res.text):
-            print("✅ Login berhasil!")
-            return True
-        else:
-            print("❌ Login gagal.")
-            return False
-    except Exception as e:
-        print(f"❌ Error saat login: {e}")
+    res = session.post(urljoin(BASE_URL, LOGIN_URL), data=login_data, headers=HEADERS)
+    if "menu.html" in res.text or "logout.asp" in res.text or session.cookies.get_dict():
+        print("✅ Login berhasil!")
+        return True
+    else:
+        print("❌ Login gagal: tidak ada indikasi login berhasil.")
         return False
 
 def get_usage(session):
@@ -97,25 +106,36 @@ def get_usage(session):
 def send_telegram_message(bot, text):
     global chat_id
     if chat_id:
-        bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
+        try:
+            bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
+        except Exception as e:
+            print(f"❌ Gagal kirim pesan ke Telegram: {e}")
 
 def monitor_fup(bot):
     global monitoring, selected_speed
     stage1, stage2 = FUP_TABLE[selected_speed]
     session = requests.Session()
+
     if not login_to_router(session):
-        send_telegram_message(bot, "❌ Gagal login ke router.")
+        warning_msg = (
+            "⚠️ Tidak bisa login ke router.\n"
+            "💡 Mungkin sesi login sebelumnya masih aktif atau belum ditutup dengan benar.\n"
+            "⏳ Silakan tunggu 1-2 menit lalu coba lagi.\n"
+            "🔁 Atau pastikan tidak ada sesi terbuka di browser/router lain."
+        )
+        send_telegram_message(bot, warning_msg)
+        monitoring = False
         return
 
     send_telegram_message(bot, f"📱 Mengakses halaman statistik: {STATS_PAGE}\n🔄 Memulai pemantauan penggunaan data WiFi...")
     print(f"📱 Mengakses halaman statistik: {STATS_PAGE}")
-    print("🔄 Memulai pemantauan penggunaan data WiFi...\n")
+    print("🔄 Memantau penggunaan data WiFi...")
 
     while monitoring:
         try:
             total_gb, rx, tx = get_usage(session)
             ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            status = check_fup_status(total_gb, stage1, stage2)
+            status = check_fup_status(total_gb, stage1, stage2, selected_speed)
             message = f"[{ts}] Total: {total_gb:.2f} GB | RX: {bytes_to_gb(rx):.2f} GB | TX: {bytes_to_gb(tx):.2f} GB\n{status}"
             print(message)
             send_telegram_message(bot, message)
@@ -128,43 +148,75 @@ def start(update, context):
     chat_id = update.effective_chat.id
     print(f"📥 Received /start command from {chat_id}")
 
-    # Simpan chat_id ke .env jika belum ada
     if not TELEGRAM_CHAT_ID:
         TELEGRAM_CHAT_ID = str(chat_id)
         with open(".env", "a") as f:
             f.write(f"TELEGRAM_CHAT_ID={TELEGRAM_CHAT_ID}\n")
 
-    if monitoring:
-        update.message.reply_text("⚠️ Pemantauan sudah berjalan!")
-        return
+    update.message.reply_text(
+        "👋 Selamat datang di *IndiHome FUP Monitor*!\n"
+        "Bot ini akan memantau total pemakaian data dari router Anda.\n\n"
+        "📌 Gunakan /menu untuk memilih paket dan mulai memantau.",
+        parse_mode='Markdown'
+    )
 
-    update.message.reply_text("Pilih paket speed Anda (ketik angkanya saja):\n" +
-                              "\n".join([f"- {s} Mbps" for s in sorted(FUP_TABLE)]))
-    context.user_data['awaiting_speed'] = True
+def menu(update, context):
+    table = (
+        "<pre>"
+        "📊 Berikut daftar FUP IndiHome Resmi:\n\n"
+        "Speed     | FUP-0                 | FUP-1                     | FUP-2\n"
+        "----------|------------------------|----------------------------|-------------------------\n"
+        "10 Mbps  | 0 - 300 GB (10 Mbps)  | > 300 - 350 GB (7.5 Mbps) | > 350 GB (3 Mbps)\n"
+        "20 Mbps  | 0 - 500 GB (20 Mbps)  | > 500 - 750 GB (10 Mbps)  | > 750 GB (4 Mbps)\n"
+        "30 Mbps  | 0 - 700 GB (30 Mbps)  | > 700 - 1100 GB (15 Mbps) | > 1100 GB (6 Mbps)\n"
+        "40 Mbps  | 0 - 800 GB (40 Mbps)  | > 800 - 1500 GB (20 Mbps) | > 1500 GB (8 Mbps)\n"
+        "50 Mbps  | 0 - 1200 GB (50 Mbps) | > 1200 - 1800 GB (25 Mbps)| > 1800 GB (10 Mbps)\n"
+        "100 Mbps | 0 - 1800 GB (100 Mbps)| > 1800 - 2000 GB (50 Mbps)| > 2000 GB (20 Mbps)\n"
+        "200 Mbps | 0 - 3000 GB (200 Mbps)| > 3000 GB (100 Mbps)      | -\n"
+        "300 Mbps | 0 - 4000 GB (300 Mbps)| > 4000 GB (150 Mbps)      | -\n"
+        "</pre>\n"
+        "Ketik angka paket Anda (misalnya: 50) untuk mulai memantau."
+    )
+    update.message.reply_text(table, parse_mode="HTML")
 
 def stop(update, context):
     global monitoring
     monitoring = False
-    update.message.reply_text("⛔ Pemantauan dihentikan.")
+    try:
+        update.message.reply_text("⛔ Pemantauan dihentikan.")
+    except Exception as e:
+        print(f"❌ Gagal kirim pesan saat /stop: {e}")
 
 def handle_message(update, context):
-    global monitoring, monitor_thread, selected_speed, chat_id
+    global monitoring, monitor_thread, selected_speed, chat_id, user_selected_package
     chat_id = update.effective_chat.id
     print(f"📨 Pesan masuk dari {chat_id}: {update.message.text}")
-    if context.user_data.get('awaiting_speed'):
-        try:
-            selected = int(update.message.text)
-            if selected in FUP_TABLE:
-                selected_speed = selected
-                update.message.reply_text(f"✅ Paket {selected} Mbps dipilih. Mulai memantau...")
-                monitoring = True
-                monitor_thread = threading.Thread(target=monitor_fup, args=(context.bot,))
-                monitor_thread.start()
-                context.user_data['awaiting_speed'] = False
-            else:
-                update.message.reply_text("❌ Kecepatan tidak tersedia di daftar.")
-        except ValueError:
-            update.message.reply_text("❌ Input tidak valid. Masukkan angka saja.")
+
+    try:
+        selected = int(update.message.text)
+
+        if selected not in FUP_TABLE:
+            update.message.reply_text("❌ Kecepatan tidak tersedia di daftar.")
+            return
+
+        if chat_id in user_selected_package:
+            if selected != user_selected_package[chat_id]:
+                update.message.reply_text(
+                    f"❌ Anda hanya diizinkan memantau paket {user_selected_package[chat_id]} Mbps.\n"
+                    f"💡 Paket yang Anda coba: {selected} Mbps"
+                )
+                return
+        else:
+            user_selected_package[chat_id] = selected
+
+        selected_speed = selected
+        update.message.reply_text(f"✅ Paket {selected} Mbps dipilih. Mulai memantau...")
+        monitoring = True
+        monitor_thread = threading.Thread(target=monitor_fup, args=(context.bot,))
+        monitor_thread.start()
+
+    except ValueError:
+        update.message.reply_text("❌ Input tidak valid. Masukkan angka saja.")
 
 if __name__ == '__main__':
     print("Bot Telegram FUP Monitor sedang berjalan...")
@@ -172,6 +224,7 @@ if __name__ == '__main__':
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("stop", stop))
+    dp.add_handler(CommandHandler("menu", menu))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
     updater.start_polling()
     updater.idle()
