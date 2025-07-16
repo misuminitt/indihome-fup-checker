@@ -1,0 +1,1 @@
+worker: python fup_monitor.py
